@@ -977,15 +977,27 @@ function drawPolarDiagram(date) {
   const cx = w / 2, cy = h / 2;
   const r = Math.min(cx, cy) - 36;
 
+  // Theme-aware colors for polar diagram
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const gridLine = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)';
+  const gridLabel = isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.25)';
+  const dirLineMain = isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)';
+  const dirLineSub = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.07)';
+  const dirLabelMain = isLight ? '#1e3a5f' : '#e2e8f0';
+  const dirLabelSub = isLight ? '#5a8ab5' : '#64748b';
+  const timeLabel = isLight ? 'rgba(30,58,95,0.8)' : 'rgba(255,255,255,0.6)';
+  const horizonLine = isLight ? 'rgba(3,105,161,0.4)' : 'rgba(245,158,11,0.3)';
+  const sunStroke = isLight ? '#1e3a5f' : '#fff';
+
   ctx.clearRect(0, 0, w, h);
 
   // Elevation rings
   for (let el = 15; el <= 75; el += 15) {
     const rr = r * (1 - el / 90);
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.strokeStyle = gridLine;
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillStyle = gridLabel;
     ctx.font = `${Math.max(9, r/16)}px -apple-system, sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(el + '°', cx, cy - rr + 12);
@@ -1000,18 +1012,18 @@ function drawPolarDiagram(date) {
   ];
   dirs.forEach(d => {
     const rad = (d.angle - 90) * Math.PI / 180;
-    ctx.strokeStyle = d.label.length === 1 ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.07)';
+    ctx.strokeStyle = d.label.length === 1 ? dirLineMain : dirLineSub;
     ctx.lineWidth = d.label.length === 1 ? 1.5 : 1;
     ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + r * Math.cos(rad), cy + r * Math.sin(rad)); ctx.stroke();
     const lr = r + 18;
-    ctx.fillStyle = d.label.length === 1 ? '#e2e8f0' : '#64748b';
+    ctx.fillStyle = d.label.length === 1 ? dirLabelMain : dirLabelSub;
     ctx.font = d.label.length === 1 ? `bold ${Math.max(11, r/10)}px -apple-system, sans-serif` : `${Math.max(9, r/13)}px -apple-system, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(d.label, cx + lr * Math.cos(rad), cy + lr * Math.sin(rad));
   });
 
   // Horizon
-  ctx.strokeStyle = 'rgba(245,158,11,0.3)'; ctx.lineWidth = 2;
+  ctx.strokeStyle = horizonLine; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
 
   // Sun path — draw full path with day/night split (like HKO)
@@ -1066,7 +1078,7 @@ function drawPolarDiagram(date) {
       let localHr = utcHr + Math.round(tzOffset);
       localHr = ((localHr % 24) + 24) % 24;
       const label = localHr + ':00';
-      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.fillStyle = timeLabel;
       ctx.font = `${Math.max(9, r / 16)}px -apple-system, sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText(label, p.x, p.y - 10);
@@ -1087,7 +1099,7 @@ function drawPolarDiagram(date) {
     ctx.beginPath(); ctx.arc(sx, sy, 20, 0, Math.PI * 2); ctx.fill();
     const sunAlpha = nowSun.elevation > 0 ? 1.0 : 0.5;
     ctx.globalAlpha = sunAlpha;
-    ctx.fillStyle = '#f59e0b'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.fillStyle = '#f59e0b'; ctx.strokeStyle = sunStroke; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#f59e0b';
     ctx.font = `bold ${Math.max(10, r/14)}px SF Mono, monospace`;
