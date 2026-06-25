@@ -378,6 +378,48 @@
     <div class="time-control">
       <div class="section-title">Date & Time</div>
       <input type="date" id="dateInput" style="margin-top:6px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
+        <span class="section-title" style="margin:0;">Time Zone</span>
+        <select id="tzSelect" onchange="onTzChange()" style="
+          background:var(--input-bg); border:1px solid var(--border); border-radius:4px;
+          color:var(--text); padding:4px 8px; font-size:12px; flex:1;
+          font-family:'SF Mono','Fira Code',monospace;">
+          <option value="-12">UTC-12:00</option>
+          <option value="-11">UTC-11:00</option>
+          <option value="-10">UTC-10:00</option>
+          <option value="-9">UTC-09:00</option>
+          <option value="-8">UTC-08:00</option>
+          <option value="-7">UTC-07:00</option>
+          <option value="-6">UTC-06:00</option>
+          <option value="-5">UTC-05:00</option>
+          <option value="-4">UTC-04:00</option>
+          <option value="-3">UTC-03:00</option>
+          <option value="-2">UTC-02:00</option>
+          <option value="-1">UTC-01:00</option>
+          <option value="0">UTC+00:00</option>
+          <option value="1">UTC+01:00</option>
+          <option value="2">UTC+02:00</option>
+          <option value="3">UTC+03:00</option>
+          <option value="4">UTC+04:00</option>
+          <option value="5">UTC+05:00</option>
+          <option value="5.5">UTC+05:30</option>
+          <option value="5.75">UTC+05:45</option>
+          <option value="6">UTC+06:00</option>
+          <option value="6.5">UTC+06:30</option>
+          <option value="7">UTC+07:00</option>
+          <option value="8" selected>UTC+08:00</option>
+          <option value="8.75">UTC+08:45</option>
+          <option value="9">UTC+09:00</option>
+          <option value="9.5">UTC+09:30</option>
+          <option value="10">UTC+10:00</option>
+          <option value="10.5">UTC+10:30</option>
+          <option value="11">UTC+11:00</option>
+          <option value="12">UTC+12:00</option>
+          <option value="12.75">UTC+12:45</option>
+          <option value="13">UTC+13:00</option>
+          <option value="14">UTC+14:00</option>
+        </select>
+      </div>
       <div class="time-display" id="timeDisplay">12:00</div>
       <div class="slider-wrap">
         <input type="range" id="timeSlider" min="0" max="1440" value="720" step="1">
@@ -562,10 +604,27 @@ function calcSunriseSunset(date, lat, lon) {
 let map, marker, sunMarker, azimuthLine, pathPolyline;
 let currentLat = 22.3193, currentLon = 114.1694;
 let playing = false, playInterval = null;
+let tzOffset = 8; // UTC+8:00 default (Hong Kong)
 
 function init() {
-  const today = new Date();
-  document.getElementById('dateInput').value = today.toISOString().split('T')[0];
+  // Set default timezone from saved or detect from browser
+  const savedTz = localStorage.getItem('solar-tz');
+  if (savedTz !== null) {
+    tzOffset = parseFloat(savedTz);
+  }
+  const tzSel = document.getElementById('tzSelect');
+  if (tzSel) {
+    tzSel.value = String(tzOffset);
+  }
+
+  // Set today's date in local time
+  const now = new Date();
+  const localNow = new Date(now.getTime() + (tzOffset * 60 - now.getTimezoneOffset()) * 60000);
+  document.getElementById('dateInput').value = localNow.toISOString().split('T')[0];
+
+  // Set slider to current local time
+  const localMinutes = localNow.getUTCHours() * 60 + localNow.getUTCMinutes();
+  document.getElementById('timeSlider').value = localMinutes;
 
   map = L.map('map', { center: [currentLat, currentLon], zoom: 10, zoomControl: false });
   window._tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
@@ -656,24 +715,35 @@ function sunMapOffset(azimuthDeg, elevationDeg) {
 }
 
 function updateSolar() {
+  // Slider represents LOCAL time in the selected timezone
   const minutes = parseInt(document.getElementById('timeSlider').value);
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   document.getElementById('timeDisplay').textContent = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
 
+  // Convert local time → UTC for the solar algorithm
   const date = getSelectedDate();
-  date.setUTCHours(h, m, 0, 0);
-  const sun = calcSunPosition(date, currentLat, currentLon);
+  let utcMinutes = minutes - Math.round(tzOffset * 60);
+  let utcDate = new Date(date.getTime());
+  if (utcMinutes < 0) { utcMinutes += 1440; utcDate.setUTCDate(utcDate.getUTCDate() - 1); }
+  if (utcMinutes >= 1440) { utcMinutes -= 1440; utcDate.setUTCDate(utcDate.getUTCDate() + 1); }
+  utcDate.setUTCHours(Math.floor(utcMinutes / 60), utcMinutes % 60, 0, 0);
+
+  const sun = calcSunPosition(utcDate, currentLat, currentLon);
 
   document.getElementById('azValue').textContent = sun.azimuth.toFixed(2) + '°';
   document.getElementById('elValue').textContent = sun.elevation.toFixed(2) + '°';
   document.getElementById('cardinalValue').textContent = getCardinal(sun.azimuth);
 
-  const ss = calcSunriseSunset(date, currentLat, currentLon);
+  // Sunrise/sunset are computed in UTC minutes — convert to local time for display
+  const ss = calcSunriseSunset(utcDate, currentLat, currentLon);
   if (ss.sunrise !== null) {
-    const fmt = min => {
-      const hh = Math.floor(((min % 1440) + 1440) % 1440 / 60);
-      const mm = Math.floor(((min % 1440) + 1440) % 1440 % 60);
+    const fmt = utcMin => {
+      // Convert UTC minutes to local minutes
+      let localMin = utcMin + Math.round(tzOffset * 60);
+      localMin = ((localMin % 1440) + 1440) % 1440;
+      const hh = Math.floor(localMin / 60);
+      const mm = Math.floor(localMin % 60);
       return String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
     };
     document.getElementById('sunriseTime').textContent = fmt(ss.sunrise);
@@ -700,17 +770,17 @@ function updateSolar() {
     azimuthLine.setStyle({ opacity: 0 });
   }
 
-  drawDayPath(date);
-  drawPolarDiagram(date);
+  drawDayPath(utcDate);
+  drawPolarDiagram(utcDate);
 
   document.getElementById('mapInfo').innerHTML =
     `<strong>${currentLat.toFixed(4)}°, ${currentLon.toFixed(4)}°</strong><br>` +
     `Az: ${sun.azimuth.toFixed(1)}° | El: ${sun.elevation.toFixed(1)}°`;
 }
 
-function drawDayPath(date) {
+function drawDayPath(utcDate) {
   const pathPoints = [];
-  const baseDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const baseDate = new Date(Date.UTC(utcDate.getUTCFullYear(), utcDate.getUTCMonth(), utcDate.getUTCDate()));
   // Use civil twilight threshold (-0.83333°) like HKO
   for (let min = 0; min <= 1440; min += 10) {
     const d = new Date(baseDate.getTime() + min * 60000);
@@ -1030,6 +1100,13 @@ function initPolarExpand() {
   });
 }
 
+
+// ========== Timezone ==========
+function onTzChange() {
+  tzOffset = parseFloat(document.getElementById('tzSelect').value);
+  localStorage.setItem('solar-tz', String(tzOffset));
+  updateSolar();
+}
 
 // ========== Theme Toggle ==========
 function getTheme() {
