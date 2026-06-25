@@ -885,16 +885,21 @@ function drawPolarDiagram(date) {
   }
 
   // Hourly markers on daytime path (blue dots like HKO)
-  for (let hr = 0; hr <= 24; hr++) {
-    const idx = allPts.findIndex(p => Math.abs(p.min - hr * 60) < 6 && p.isDay);
+  // Label with LOCAL time (convert UTC hour → local hour via tzOffset)
+  for (let utcHr = 0; utcHr <= 24; utcHr++) {
+    const idx = allPts.findIndex(p => Math.abs(p.min - utcHr * 60) < 6 && p.isDay);
     if (idx >= 0) {
       const p = allPts[idx];
       ctx.fillStyle = '#38bdf8';
       ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3, r / 60), 0, Math.PI * 2); ctx.fill();
+      // Convert UTC hour to local hour
+      let localHr = utcHr + Math.round(tzOffset);
+      localHr = ((localHr % 24) + 24) % 24;
+      const label = localHr + ':00';
       ctx.fillStyle = 'rgba(255,255,255,0.6)';
       ctx.font = `${Math.max(9, r / 16)}px -apple-system, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(hr + ':00', p.x, p.y - 10);
+      ctx.fillText(label, p.x, p.y - 10);
     }
   }
 
