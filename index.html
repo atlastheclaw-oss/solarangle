@@ -857,13 +857,14 @@ function updateSolar() {
     document.getElementById('noonTime').textContent = '--:--';
   }
 
-  // Update sun marker on map
-  if (sun.elevation > 0) {
+  // Update sun marker on map (visible during civil twilight: elevation > -0.83333°)
+  if (sun.elevation > -0.83333) {
     const p = sunMapOffset(sun.azimuth, sun.elevation);
     sunMarker.setLatLng([p.lat, p.lon]);
-    sunMarker.setStyle({ fillOpacity: 0.9, radius: 10 });
+    const markerOpacity = sun.elevation > 0 ? 0.9 : 0.5;
+    sunMarker.setStyle({ fillOpacity: markerOpacity, radius: 10 });
     azimuthLine.setLatLngs([[currentLat, currentLon], [p.lat, p.lon]]);
-    azimuthLine.setStyle({ opacity: 0.8 });
+    azimuthLine.setStyle({ opacity: sun.elevation > 0 ? 0.8 : 0.4 });
   } else {
     sunMarker.setStyle({ fillOpacity: 0 });
     azimuthLine.setStyle({ opacity: 0 });
@@ -880,10 +881,11 @@ function updateSolar() {
 function drawDayPath(date) {
   const pathPoints = [];
   const baseDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  // Use civil twilight threshold (-0.83333°) like HKO
   for (let min = 0; min <= 1440; min += 10) {
     const d = new Date(baseDate.getTime() + min * 60000);
     const sun = calcSunPosition(d, currentLat, currentLon);
-    if (sun.elevation > 0) {
+    if (sun.elevation > -0.83333) {
       const p = sunMapOffset(sun.azimuth, sun.elevation);
       pathPoints.push([p.lat, p.lon]);
     }
@@ -942,41 +944,63 @@ function drawPolarDiagram(date) {
   ctx.strokeStyle = 'rgba(245,158,11,0.3)'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
 
-  // Day path
+  // Sun path — draw full path with day/night split (like HKO)
+  // Civil twilight threshold: altitude > -0.83333°
   const baseDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const pathPts = [];
+  const allPts = [];
   for (let min = 0; min <= 1440; min += 5) {
     const d = new Date(baseDate.getTime() + min * 60000);
     const sun = calcSunPosition(d, currentLat, currentLon);
-    if (sun.elevation > 0) {
-      const azRad = (sun.azimuth - 90) * Math.PI / 180;
-      const dist = r * (1 - sun.elevation / 90);
-      pathPts.push({ x: cx + dist * Math.cos(azRad), y: cy + dist * Math.sin(azRad), min });
-    }
+    const azRad = (sun.azimuth - 90) * Math.PI / 180;
+    const dist = r * (1 - sun.elevation / 90);
+    allPts.push({
+      x: cx + dist * Math.cos(azRad),
+      y: cy + dist * Math.sin(azRad),
+      min,
+      elevation: sun.elevation,
+      isDay: sun.elevation > -0.83333
+    });
   }
-  if (pathPts.length > 1) {
-    for (let i = 1; i < pathPts.length; i++) {
-      ctx.strokeStyle = `rgba(56, 189, 248, ${0.3 + 0.5 * (i / pathPts.length)})`;
-      ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(pathPts[i-1].x, pathPts[i-1].y); ctx.lineTo(pathPts[i].x, pathPts[i].y); ctx.stroke();
-    }
-    for (let hr = 0; hr <= 24; hr++) {
-      const idx = pathPts.findIndex(p => Math.abs(p.min - hr * 60) < 6);
-      if (idx >= 0) {
-        const p = pathPts[idx];
-        ctx.fillStyle = '#38bdf8';
-        ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3, r/60), 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.5)';
-        ctx.font = `${Math.max(9, r/16)}px -apple-system, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillText(hr + ':00', p.x, p.y - 8);
-      }
+
+  // Draw daytime segments in yellow (like HKO)
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (let i = 1; i < allPts.length; i++) {
+    const prev = allPts[i - 1];
+    const curr = allPts[i];
+    if (prev.isDay && curr.isDay) {
+      // Daytime: yellow path
+      ctx.strokeStyle = '#fbbf24';
+      ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(curr.x, curr.y); ctx.stroke();
+    } else if (!prev.isDay && curr.isDay) {
+      // Night to day transition: dim segment to horizon
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.3)';
+      ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(curr.x, curr.y); ctx.stroke();
+    } else if (prev.isDay && !curr.isDay) {
+      // Day to night transition: dim segment from horizon
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.3)';
+      ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(curr.x, curr.y); ctx.stroke();
     }
   }
 
-  // Current sun
+  // Hourly markers on daytime path (blue dots like HKO)
+  for (let hr = 0; hr <= 24; hr++) {
+    const idx = allPts.findIndex(p => Math.abs(p.min - hr * 60) < 6 && p.isDay);
+    if (idx >= 0) {
+      const p = allPts[idx];
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3, r / 60), 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.font = `${Math.max(9, r / 16)}px -apple-system, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(hr + ':00', p.x, p.y - 10);
+    }
+  }
+
+  // Current sun (visible during civil twilight)
   const nowSun = calcSunPosition(date, currentLat, currentLon);
-  if (nowSun.elevation > 0) {
+  if (nowSun.elevation > -0.83333) {
     const azRad = (nowSun.azimuth - 90) * Math.PI / 180;
     const dist = r * (1 - nowSun.elevation / 90);
     const sx = cx + dist * Math.cos(azRad);
@@ -986,12 +1010,15 @@ function drawPolarDiagram(date) {
     glow.addColorStop(1, 'rgba(245,158,11,0)');
     ctx.fillStyle = glow;
     ctx.beginPath(); ctx.arc(sx, sy, 20, 0, Math.PI * 2); ctx.fill();
+    const sunAlpha = nowSun.elevation > 0 ? 1.0 : 0.5;
+    ctx.globalAlpha = sunAlpha;
     ctx.fillStyle = '#f59e0b'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#f59e0b';
     ctx.font = `bold ${Math.max(10, r/14)}px SF Mono, monospace`;
     ctx.textAlign = 'center';
     ctx.fillText(nowSun.azimuth.toFixed(1) + '°', sx, sy + 24);
+    ctx.globalAlpha = 1.0;
   }
 }
 
